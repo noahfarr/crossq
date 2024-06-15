@@ -162,7 +162,6 @@ class ActorNetwork(nn.Module):
         x = F.relu(x)
 
         x = self.bn3(x)
-        x = F.relu(self.fc2(x))
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
