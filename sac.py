@@ -12,11 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
-from torch.utils.tensorboard.writer import SummaryWriter
-
-# batch renorm implementation from https://github.com/ludvb/batchrenorm
-
-from batch_renorm import BatchRenorm1d
+from torch.utils.tensorboard import SummaryWriter
 
 
 @dataclass
@@ -31,9 +27,9 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "crossq"
+    wandb_project_name: str = "cleanRL"
     """the wandb's project name"""
-    wandb_entity: str = "noahfarr"
+    wandb_entity: str = None
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
@@ -47,16 +43,20 @@ class Args:
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
+    tau: float = 0.005
+    """target smoothing coefficient (default: 0.005)"""
     batch_size: int = 256
     """the batch size of sample from the reply memory"""
-    learning_starts: int = 5000
+    learning_starts: int = 5e3
     """timestep to start learning"""
-    policy_lr: float = 1e-3
+    policy_lr: float = 3e-4
     """the learning rate of the policy network optimizer"""
     q_lr: float = 1e-3
     """the learning rate of the Q network network optimizer"""
-    policy_frequency: int = 3
+    policy_frequency: int = 2
     """the frequency of training policy (delayed)"""
+    target_network_frequency: int = 1  # Denis Yarats' implementation delays this by 2.
+    """the frequency of updates for the target nerworks"""
     alpha: float = 0.2
     """Entropy regularization coefficient."""
     autotune: bool = True
@@ -78,62 +78,34 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 
 # ALGO LOGIC: initialize agent here:
-class CriticNetwork(nn.Module):
+class SoftQNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
-
-        self.bn1 = BatchRenorm1d(
-            np.array(env.single_observation_space.shape).prod()
-            + np.prod(env.single_action_space.shape),
-            momentum=0.01,
-        )
         self.fc1 = nn.Linear(
             np.array(env.single_observation_space.shape).prod()
             + np.prod(env.single_action_space.shape),
-            2048,
+            256,
         )
-        self.bn2 = BatchRenorm1d(2048, momentum=0.01)
-        self.fc2 = nn.Linear(2048, 2048)
-        self.bn3 = BatchRenorm1d(2048, momentum=0.01)
-        self.fc3 = nn.Linear(2048, 2048)
-        self.bn4 = BatchRenorm1d(2048, momentum=0.01)
-        self.fc4 = nn.Linear(2048, 1)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 1)
 
     def forward(self, x, a):
         x = torch.cat([x, a], 1)
-
-        x = self.bn1(x)
-        x = self.fc1(x)
-        x = F.relu(x)
-
-        x = self.bn2(x)
-        x = self.fc2(x)
-        x = F.relu(x)
-
-        x = self.bn3(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         x = self.fc3(x)
-        x = F.relu(x)
-
-        x = self.bn4(x)
-        x = self.fc4(x)
-
         return x
 
 
-LOG_STD_MIN = -20
 LOG_STD_MAX = 2
+LOG_STD_MIN = -5
 
 
-class ActorNetwork(nn.Module):
+class Actor(nn.Module):
     def __init__(self, env):
         super().__init__()
-        self.bn1 = BatchRenorm1d(
-            np.array(env.single_observation_space.shape).prod(), momentum=0.01
-        )
         self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
-        self.bn2 = BatchRenorm1d(256, momentum=0.01)
         self.fc2 = nn.Linear(256, 256)
-        self.bn3 = BatchRenorm1d(256, momentum=0.01)
         self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
         self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
         # action rescaling
@@ -153,15 +125,7 @@ class ActorNetwork(nn.Module):
         )
 
     def forward(self, x):
-        x = self.bn1(x)
-        x = self.fc1(x)
-        x = F.relu(x)
-
-        x = self.bn2(x)
-        x = self.fc2(x)
-        x = F.relu(x)
-
-        x = self.bn3(x)
+        x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
@@ -236,10 +200,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = ActorNetwork(envs).to(device)
-    qf1 = CriticNetwork(envs).to(device)
-    qf2 = CriticNetwork(envs).to(device)
-
+    actor = Actor(envs).to(device)
+    qf1 = SoftQNetwork(envs).to(device)
+    qf2 = SoftQNetwork(envs).to(device)
+    qf1_target = SoftQNetwork(envs).to(device)
+    qf2_target = SoftQNetwork(envs).to(device)
+    qf1_target.load_state_dict(qf1.state_dict())
+    qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(
         list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr
     )
@@ -312,18 +279,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 next_state_actions, next_state_log_pi, _ = actor.get_action(
                     data.next_observations
                 )
-                qf1.train()
-                qf1_next = qf1(data.next_observations, next_state_actions)
-                qf1.eval()
-
-                qf2.train()
-                qf2_next = qf2(data.next_observations, next_state_actions)
-                qf2.eval()
-
-                min_qf_next = torch.min(qf1_next, qf2_next) - alpha * next_state_log_pi
+                qf1_next_target = qf1_target(data.next_observations, next_state_actions)
+                qf2_next_target = qf2_target(data.next_observations, next_state_actions)
+                min_qf_next_target = (
+                    torch.min(qf1_next_target, qf2_next_target)
+                    - alpha * next_state_log_pi
+                )
                 next_q_value = data.rewards.flatten() + (
                     1 - data.dones.flatten()
-                ) * args.gamma * (min_qf_next).view(-1)
+                ) * args.gamma * (min_qf_next_target).view(-1)
 
             qf1_a_values = qf1(data.observations, data.actions).view(-1)
             qf2_a_values = qf2(data.observations, data.actions).view(-1)
@@ -340,9 +304,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 for _ in range(
                     args.policy_frequency
                 ):  # compensate for the delay by doing 'actor_update_interval' instead of 1
-                    actor.train()
                     pi, log_pi, _ = actor.get_action(data.observations)
-                    actor.eval()
                     qf1_pi = qf1(data.observations, pi)
                     qf2_pi = qf2(data.observations, pi)
                     min_qf_pi = torch.min(qf1_pi, qf2_pi)
@@ -364,6 +326,21 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                         a_optimizer.step()
                         alpha = log_alpha.exp().item()
 
+            # update the target networks
+            if global_step % args.target_network_frequency == 0:
+                for param, target_param in zip(
+                    qf1.parameters(), qf1_target.parameters()
+                ):
+                    target_param.data.copy_(
+                        args.tau * param.data + (1 - args.tau) * target_param.data
+                    )
+                for param, target_param in zip(
+                    qf2.parameters(), qf2_target.parameters()
+                ):
+                    target_param.data.copy_(
+                        args.tau * param.data + (1 - args.tau) * target_param.data
+                    )
+
             if global_step % 100 == 0:
                 writer.add_scalar(
                     "losses/qf1_values", qf1_a_values.mean().item(), global_step
@@ -376,6 +353,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
                 writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
                 writer.add_scalar("losses/alpha", alpha, global_step)
+                print("SPS:", int(global_step / (time.time() - start_time)))
                 writer.add_scalar(
                     "charts/SPS",
                     int(global_step / (time.time() - start_time)),
