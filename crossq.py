@@ -43,17 +43,15 @@ class Args:
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
-    tau: float = 0.005
-    """target smoothing coefficient (default: 0.005)"""
     batch_size: int = 256
     """the batch size of sample from the reply memory"""
-    learning_starts: int = 5e3
+    learning_starts: int = 5000
     """timestep to start learning"""
-    policy_lr: float = 3e-4
+    policy_lr: float = 1e-3
     """the learning rate of the policy network optimizer"""
     q_lr: float = 1e-3
     """the learning rate of the Q network network optimizer"""
-    policy_frequency: int = 2
+    policy_frequency: int = 3
     """the frequency of training policy (delayed)"""
     alpha: float = 0.2
     """Entropy regularization coefficient."""
@@ -88,12 +86,14 @@ class CriticNetwork(nn.Module):
         self.fc1 = nn.Linear(
             np.array(env.single_observation_space.shape).prod()
             + np.prod(env.single_action_space.shape),
-            256,
+            2048,
         )
-        self.bn2 = nn.BatchNorm1d(256, momentum=0.01)
-        self.fc2 = nn.Linear(256, 256)
-        self.bn3 = nn.BatchNorm1d(256, momentum=0.01)
-        self.fc3 = nn.Linear(256, 1)
+        self.bn2 = nn.BatchNorm1d(2048, momentum=0.01)
+        self.fc2 = nn.Linear(2048, 2048)
+        self.bn3 = nn.BatchNorm1d(2048, momentum=0.01)
+        self.fc3 = nn.Linear(2048, 2048)
+        self.bn4 = nn.BatchNorm1d(2048, momentum=0.01)
+        self.fc4 = nn.Linear(2048, 1)
 
     def forward(self, x, a):
         x = torch.cat([x, a], 1)
@@ -108,6 +108,11 @@ class CriticNetwork(nn.Module):
 
         x = self.bn3(x)
         x = self.fc3(x)
+        x = F.relu(x)
+
+        x = self.bn4(x)
+        x = self.fc4(x)
+
         return x
 
 
