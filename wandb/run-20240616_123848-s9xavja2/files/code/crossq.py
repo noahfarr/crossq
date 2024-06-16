@@ -42,7 +42,7 @@ class Args:
     """the environment id of the task"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
-    buffer_size: int = 1_000_000
+    buffer_size: int = int(1e6)
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -50,9 +50,9 @@ class Args:
     """the batch size of sample from the reply memory"""
     learning_starts: int = 5000
     """timestep to start learning"""
-    policy_lr: float = 0.001
+    policy_lr: float = 1e-3
     """the learning rate of the policy network optimizer"""
-    q_lr: float = 0.001
+    q_lr: float = 1e-3
     """the learning rate of the Q network network optimizer"""
     policy_frequency: int = 3
     """the frequency of training policy (delayed)"""
@@ -233,9 +233,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     qf2 = CriticNetwork(envs).to(device)
 
     q_optimizer = optim.Adam(
-        list(qf1.parameters()) + list(qf2.parameters()),
-        lr=args.q_lr,
-        betas=(0.5, 0.999),
+        list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr
     )
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 

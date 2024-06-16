@@ -9,10 +9,10 @@ class BatchRenorm(torch.jit.ScriptModule):
     def __init__(
         self,
         num_features: int,
-        eps: float = 1e-3,
+        eps: float = 0.001,
         momentum: float = 0.01,
         affine: bool = True,
-        warmup_steps: int = 10000,
+        warmup_steps: int = 100_000,
     ):
         super().__init__()
         self.register_buffer(
