@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "crossq"
+name = "cleanrl"
 version = "0.1.0"
 description = ""
 authors = ["Noah Farr <login@noahfarr.com>"]
@@ -7,12 +7,12 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-gymnasium = {extras = ["mujoco"], version = "^0.29.1"}
-torch = "^2.3.1"
-tyro = "^0.8.4"
+gymnasium = { extras = ["mujoco"], version = "^0.29.1" }
 stable-baselines3 = "^2.3.2"
+torch = "^2.3.1"
+tyro = "^0.8.5"
 tensorboard = "^2.17.0"
-wandb = "^0.17.1"
+wandb = "^0.17.4"
 
 
 [build-system]

@@ -46,9 +46,9 @@ class Args:
     """the batch size of sample from the reply memory"""
     learning_starts: int = 5000
     """timestep to start learning"""
-    policy_lr: float = 0.001
+    policy_lr: float = 1e-3
     """the learning rate of the policy network optimizer"""
-    q_lr: float = 0.001
+    q_lr: float = 1e-3
     """the learning rate of the Q network network optimizer"""
     policy_frequency: int = 3
     """the frequency of training policy (delayed)"""
@@ -63,7 +63,6 @@ import torch
 __all__ = ["BatchRenorm1d", "BatchRenorm"]
 
 
-# BatchRenorm implemtation taken form from https://github.com/danielpalen/stable-baselines3-contrib/tree/feat/crossq
 class BatchRenorm(torch.jit.ScriptModule):
     """
     BatchRenorm Module (https://arxiv.org/abs/1702.03275).
@@ -262,10 +261,11 @@ class Actor(nn.Module):
         x = self.bn3(x)
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
-        log_std = torch.tanh(log_std)
-        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
-            log_std + 1
-        )  # From SpinUp / Denis Yarats
+        # log_std = torch.tanh(log_std)
+        # log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+        #     log_std + 1
+        # )  # From SpinUp / Denis Yarats
+        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         return mean, log_std
 
     def get_action(self, x, train=False):
