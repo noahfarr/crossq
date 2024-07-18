@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 
 
 @dataclass
@@ -63,6 +63,7 @@ import torch
 __all__ = ["BatchRenorm1d", "BatchRenorm"]
 
 
+# BatchRenorm implementation from https://github.com/danielpalen/stable-baselines3-contrib/blob/feat/crossq/sb3_contrib/common/torch_layers.py
 class BatchRenorm(torch.jit.ScriptModule):
     """
     BatchRenorm Module (https://arxiv.org/abs/1702.03275).
@@ -261,11 +262,10 @@ class Actor(nn.Module):
         x = self.bn3(x)
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
-        # log_std = torch.tanh(log_std)
-        # log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
-        #     log_std + 1
-        # )  # From SpinUp / Denis Yarats
-        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        log_std = torch.tanh(log_std)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+            log_std + 1
+        )  # From SpinUp / Denis Yarats
         return mean, log_std
 
     def get_action(self, x, train=False):
