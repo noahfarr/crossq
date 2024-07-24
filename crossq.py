@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
-from torch.utils.tensorboard.writer import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 
 @dataclass
@@ -28,7 +28,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "crossq"
     """the wandb's project name"""
-    wandb_entity: str = "noahfarr"
+    wandb_entity: str = None
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
@@ -56,11 +56,6 @@ class Args:
     """Entropy regularization coefficient."""
     autotune: bool = True
     """automatic tuning of the entropy coefficient"""
-
-
-import torch
-
-__all__ = ["BatchRenorm1d", "BatchRenorm"]
 
 
 # BatchRenorm implementation from https://github.com/danielpalen/stable-baselines3-contrib/blob/feat/crossq/sb3_contrib/common/torch_layers.py
@@ -195,19 +190,17 @@ class SoftQNetwork(nn.Module):
         super().__init__()
         self.bn1 = BatchRenorm1d(
             np.array(env.single_observation_space.shape).prod()
-            + np.prod(env.single_action_space.shape),
-            momentum=0.01,
-            eps=0.001,
+            + np.prod(env.single_action_space.shape)
         )
         self.fc1 = nn.Linear(
             np.array(env.single_observation_space.shape).prod()
             + np.prod(env.single_action_space.shape),
-            1024,
+            2048,
         )
-        self.bn2 = BatchRenorm1d(1024, momentum=0.01, eps=0.001)
-        self.fc2 = nn.Linear(1024, 1024)
-        self.bn3 = BatchRenorm1d(1024, momentum=0.01, eps=0.001)
-        self.fc3 = nn.Linear(1024, 1)
+        self.bn2 = BatchRenorm1d(2048)
+        self.fc2 = nn.Linear(2048, 2048)
+        self.bn3 = BatchRenorm1d(2048)
+        self.fc3 = nn.Linear(2048, 1)
 
     def forward(self, x, a, train=False):
         if train:
@@ -229,15 +222,11 @@ LOG_STD_MAX = 2
 class Actor(nn.Module):
     def __init__(self, env):
         super().__init__()
-        self.bn1 = BatchRenorm1d(
-            np.array(env.single_observation_space.shape).prod(),
-            momentum=0.01,
-            eps=0.001,
-        )
+        self.bn1 = BatchRenorm1d(np.array(env.single_observation_space.shape).prod())
         self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
-        self.bn2 = BatchRenorm1d(256, momentum=0.01, eps=0.001)
+        self.bn2 = BatchRenorm1d(256)
         self.fc2 = nn.Linear(256, 256)
-        self.bn3 = BatchRenorm1d(256, momentum=0.01, eps=0.001)
+        self.bn3 = BatchRenorm1d(256)
         self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
         self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
         # action rescaling
