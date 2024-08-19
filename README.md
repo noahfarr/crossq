@@ -1,6 +1,6 @@
 # CrossQ
 
-This repository contains an implementation of the [CrossQ](https://arxiv.org/pdf/1902.05605) algorithm in a CleanRL fashion. 
+This repository contains an implementation of the CrossQ algorithm as presented in https://arxiv.org/pdf/1902.05605 in a CleanRL fashion. 
 
 ## Prerequisites
 
